@@ -8,10 +8,11 @@
 
 - Parses system logs for new incoming connections
 - Sends alerts to Discord with enriched context:
-  - IP geolocation and ASN
-  - AbuseIPDB threat categories and confidence score
-  - VirusTotal malware reports and suspicious URLs
-  - GreyNoise scanner classification and metadata
+  - 🌍 IP geolocation and ASN data
+  - ☣️ AbuseIPDB threat categories and confidence score
+  - 🧬 VirusTotal detection counts and related malicious URLs
+  - 👁️ GreyNoise scanner classifications and noise/RIOT info
+- 🔥 Automatically blacklists high-abuse ASNs via `nftables`
 
 It’s meant for curious server owners who want basic but useful insight into who's knocking at their ports without being stopped by other protections like [**Geoip-shell**](https://github.com/friendly-bits/geoip-shell.git) and [**CrowdSec**](https://github.com/crowdsecurity/crowdsec)'s firewall bouncer (otherwise you will get a deluge of notifications).
 
@@ -27,12 +28,15 @@ It’s meant for curious server owners who want basic but useful insight into wh
 🔍 Protocol: UDP
 🎯 Port: 161 (SNMP)
 ☣️ Threat Tags: Port Scan (9), Hacking (4)
-🧬 Malware Reports: 🚨 3 malicious reports (VT) | 🔗 URLs: http://malicious.ru/scan, http://malicious.ru/exploit
+🧬 Malware Reports: 🚨 3 malicious reports (VT)
 👁️ GreyNoise: 🚨 SNMP Probe: malicious 📡 Noise
+🛡️ ASN Block Status: 🔥⛔ Newly blacklisted
 ```
 
 ## ⚙️ Setup
+
 ### 1. Install prerequisites
+
 ```bash
 sudo apt update
 sudo apt install -y curl jq
@@ -46,26 +50,35 @@ cd ServerScout
 ```
 
 Set executable permissions:
+
 ```bash
 chmod +x server_scout.sh setup.sh
 ```
 
 ### 3. Configure environment
+
 Copy the `.env.example` to `.env`:
+
 ```bash
 cp .env.example .env
 ```
+
 Then edit it to include your API keys and Discord webhook URL.
 
 ### 4. Set up iptables logging rules
+
 Run the `setup.sh` script to insert iptables rules that log new incoming connections:
+
 ```bash
 sudo ./setup.sh
 ```
+
 This sets up logging rules for the interface `eth0`. Modify the script if your network interface is different.
 
-### 5.Run on boot with systemd
+### 5. Run on boot with systemd
+
 To run the script automatically in the background on boot let's create a systemd service. Create `/etc/systemd/system/serverscout.service` with the following contents:
+
 ```
 [Unit]
 Description=ServerScout - Incoming Connection Monitor
@@ -80,20 +93,42 @@ EnvironmentFile=/path/to/.env
 [Install]
 WantedBy=multi-user.target
 ```
+
 Enable and start the service:
+
 ```bash
 sudo systemctl daemon-reexec
 sudo systemctl enable serverscout
 sudo systemctl start serverscout
 ```
 
+### 6. Make rules persist after reboot
+
+The ipset and iptables rules are not persistent by default. To ensure the ASN blocks and connection monitor are restored after a reboot, schedule the `setup.sh` script to run at startup using the `@reboot` cron directive.
+
+Add the following to your crontab using `crontab -e`:
+
+```bash
+@reboot /root/ServerScout/setup.sh 1>/dev/null 2>/dev/null
+```
+
+### 7. Ensure that ASNs are kept up to date
+
+ASN-assigned IP prefixes can change over time. To make sure your blocking rules are current, schedule the `refresh_block.sh` script to run daily via cron. This script will automatically refresh the list of IPs associated with the ASNs and apply the updated block rules.
+
+Add the following line to your crontab using `crontab -e`:
+
+```bash
+0 3 * * * /root/ServerScout/refresh_block.sh 1>/dev/null 2>/dev/null
+```
+
 ## 📝 Notes
 
-- This script watches all **new incoming connections** on any protocol by inspecting log entries with the `NEW-CONN:` prefix, which is inserted via iptables rules.
+- 🕵️‍♂️This script watches all **new incoming connections** on any protocol by inspecting log entries with the `NEW-CONN:` prefix, which is inserted via iptables rules.
+- 🔥 ASN blocking is done via nftables with IPv4 prefixes pulled from bgpview.io
 - It does not capture established or outgoing connections.
 - You must have logging enabled and a firewall that logs new traffic — this is handled by the `setup.sh` script.
-- IPs are only reported once every 15 minutes to avoid repeated alerts.
-- If you don't run any firewalls or protections (like [**Geoip-shell**](https://github.com/friendly-bits/geoip-shell.git) and [**CrowdSec**](https://github.com/crowdsecurity/crowdsec)) in your server you will get excessive alerts.
+- 🧱 Use this alongside [**Geoip-shell**](https://github.com/friendly-bits/geoip-shell.git), [**CrowdSec**](https://github.com/crowdsecurity/crowdsec), or other firewall rules for best results. If you don't run any firewalls or protections in your server you will get excessive alerts.
 
 ## 📄 License
 
@@ -106,4 +141,3 @@ This means:
 - 📢 Derivative works **must remain open-source**.
 
 See the [LICENSE](./LICENSE) file for full terms.
-
