@@ -25,7 +25,7 @@ is_in_blacklist() {
 
 add_to_blacklist() {
     local asn="$1"
-    local comment="$2"
+    local comment="$2 (autoblocked by ServerScout)"
     local tmpfile=$(mktemp)
 
     awk -v asn="$asn" -v comment="$comment" '
@@ -229,6 +229,7 @@ send_discord_notification() {
     local country="$9"
     local countryCode="${10}"
     local asn="${11}"
+    local asn_block_status="${12}"
 
     local info=$(curl -s "http://ip-api.com/json/$ip?fields=status,country,countryCode,as,query,message")
     local status=$(echo "$info" | jq -r '.status')
@@ -257,6 +258,8 @@ send_discord_notification() {
 
 [[ -n "$gn_info" ]] && description+="
 👁️ **GreyNoise:** $gn_info"
+[[ -n "$asn_block_status" ]] && description+="
+🛡️ **ASN Block Status:** $asn_block_status"
 
         local json_payload=$(jq -n \
           --arg title "📡 New IP connection detected" \
@@ -288,15 +291,25 @@ handle_abuse_score_and_blacklist() {
     local country="$4"
     local asn_name="$5"
 
-    if (( abuse_score > 5 )); then
-        local asn_number=$(echo "$asn" | grep -oE 'AS[0-9]+' | head -n 1)
-        if [[ -n "$asn_number" ]]; then
-            if ! is_in_whitelist "$asn_number" && ! is_in_blacklist "$asn_number"; then
-                add_to_blacklist "$asn_number" "$asn_name ($country)"
-                echo "Added $asn_number to blacklist due to high abuse score."
-            fi
-        fi
+    local asn_number=$(echo "$asn" | grep -oE 'AS[0-9]+' | head -n 1)
+    if [[ -z "$asn_number" ]]; then
+        echo "⚠️ Unknown ASN"
+        return
     fi
+
+    if is_in_whitelist "$asn_number"; then
+        echo "✅ Whitelisted"
+        return
+    elif is_in_blacklist "$asn_number"; then
+        echo "⛔ Already blacklisted"
+        return
+    elif (( abuse_score > 5 )); then
+        add_to_blacklist "$asn_number" "$asn_name ($country)"
+        echo "🔥⛔ Newly blacklisted"
+        return
+    fi
+
+    echo "🟡 Not blacklisted (low abuse score)"
 }
 
 # Function to clean up old IPs (older than 15 min)
