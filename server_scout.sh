@@ -51,7 +51,7 @@ extract_top_threat_tags() {
     for cat_id in "${!category_counts[@]}"; do
         tag="${ABUSE_CATEGORIES[$cat_id]}"
         count=${category_counts[$cat_id]}
-        [[ -n "$tag" ]] && tags+=("$tag ($count)")
+        [[ -n "$tag" ]] && tags+=("$tag (x$count)")
     done
 
     IFS=$'\n' sorted=($(for t in "${tags[@]}"; do echo "$t"; done | sort -t'(' -k2 -nr))
@@ -72,10 +72,10 @@ get_virustotal_info() {
         local sample_refs=$(echo "$vt_response" | jq -r '[.data.attributes.detected_urls[0:3][]?.url] | join(", ")' 2>/dev/null)
 
         if [[ "$malicious_count" -gt 0 ]]; then
-            vt_summary="🚨 $malicious_count malicious reports (VT)"
+            vt_summary="🚨 $malicious_count malicious reports"
             [[ -n "$sample_refs" ]] && vt_summary+=" | 🔗 URLs: $sample_refs"
         else
-            vt_summary="✅ Clean (0 reports)"
+            vt_summary="✅ No detections"
         fi
     fi
 
@@ -85,7 +85,6 @@ get_virustotal_info() {
 # Function to get GreyNoise info
 get_greynoise_info() {
     local ip="$1"
-    local gn_summary="Unavailable"
 
     if [[ -n "$GREYNOISE_API_KEY" ]]; then
         local response=$(curl -s -H "key: $GREYNOISE_API_KEY" \
@@ -93,37 +92,37 @@ get_greynoise_info() {
 
         if echo "$response" | jq . >/dev/null 2>&1; then
             local message=$(echo "$response" | jq -r '.message // empty')
-            local classification
-            local emoji="⚪"
-            local noise="false"
-            local riot="false"
-            local name="Unknown"
 
             if [[ "$message" == "IP not observed scanning the internet or contained in RIOT data set." ]]; then
-                gn_summary="⚪ Not observed"
-            else
-                classification=$(echo "$response" | jq -r '.classification // "unknown"')
-                noise=$(echo "$response" | jq -r '.noise // false')
-                riot=$(echo "$response" | jq -r '.riot // false')
-                name=$(echo "$response" | jq -r '.name // "Unknown"')
-
-                case "$classification" in
-                    "malicious") emoji="🚨";;
-                    "benign") emoji="✅";;
-                    "unknown") emoji="⚠️";;
-                    "none") emoji="⚪";;
-                esac
-
-                gn_summary="$emoji $name: $classification"
-                [[ "$noise" == "true" ]] && gn_summary+=" 📡 Noise"
-                [[ "$riot" == "true" ]] && gn_summary+=" 🧩 RIOT"
+                echo "⚪ Not observed"
+                return
             fi
-        else
-            gn_summary="GreyNoise: Invalid response"
+
+            local classification=$(echo "$response" | jq -r '.classification // empty')
+            local noise=$(echo "$response" | jq -r '.noise // false')
+            local riot=$(echo "$response" | jq -r '.riot // false')
+            local name=$(echo "$response" | jq -r '.name // empty')
+
+            # Handle empty classification/name cases
+            if [[ -z "$classification" || -z "$name" ]]; then
+                return  # silently skip if missing core data
+            fi
+
+            local emoji="⚪"
+            case "$classification" in
+                "malicious") emoji="🚨";;
+                "benign") emoji="✅";;
+                "unknown") emoji="⚠️";;
+                "none") emoji="⚪";;
+            esac
+
+            local summary="$emoji $name: $classification"
+            [[ "$noise" == "true" ]] && summary+=" 📡 Noise"
+            [[ "$riot" == "true" ]] && summary+=" 🧩 RIOT"
+
+            echo "$summary"
         fi
     fi
-
-    echo "$gn_summary"
 }
 
 # Function to send notification to Discord using embed
@@ -139,7 +138,7 @@ send_discord_notification() {
         local country=$(echo "$info" | jq -r '.country')
         local countryCode=$(echo "$info" | jq -r '.countryCode')
         local asn=$(echo "$info" | jq -r '.as')
-        local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+        local timestamp=$(date +"%H:%M:%S %d-%m-%Y")
         local flag=":flag_${countryCode,,}:"
 
 	# AbuseIPDB Check
@@ -177,7 +176,9 @@ send_discord_notification() {
 🔍 **Protocol:** \`$proto\`
 🎯 **Port:** \`$port ($service)\`
 ☣️ **Threat Tags:** $threat_tags
-🧬 **Malware Reports:** $vt_samples
+🧬 **Virus Total:** $vt_samples"
+
+[[ -n "$gn_info" ]] && description+="
 👁️ **GreyNoise:** $gn_info"
 
         local json_payload=$(jq -n \
