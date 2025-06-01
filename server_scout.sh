@@ -368,7 +368,7 @@ tail -F "$LOG_FILE" | while read -r line; do
                 asn_block_status=$(handle_abuse_score_and_blacklist "$ip" "$abuse_score" "$asn" "$country" "$asn_name")
 
                 # Send notification to Discord
-                send_discord_notification "$ip" "$proto" "$port" "$service" "$abuse_score" "$threat_tags" "$vt_samples" "$gn_info" "$country" "$countryCode" "$asn"
+                send_discord_notification "$ip" "$proto" "$port" "$service" "$abuse_score" "$threat_tags" "$vt_samples" "$gn_info" "$country" "$countryCode" "$asn" "$asn_block_status"
             fi
         fi
     fi
