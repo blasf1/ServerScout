@@ -339,22 +339,22 @@ tail -F "$LOG_FILE" | while read -r line; do
         service=$(get_service_name "$port")
 
         if [[ -n "$ip" ]] && should_process_ip "$ip"; then
-            local info=$(curl -s "http://ip-api.com/json/$ip?fields=status,country,countryCode,as,query,message")
-            local status=$(echo "$info" | jq -r '.status')
+            info=$(curl -s "http://ip-api.com/json/$ip?fields=status,country,countryCode,as,query,message")
+            status=$(echo "$info" | jq -r '.status')
 
             if [[ "$status" == "success" ]]; then
-                local country=$(echo "$info" | jq -r '.country')
-                local countryCode=$(echo "$info" | jq -r '.countryCode')
-                local asn=$(echo "$info" | jq -r '.as')
+                country=$(echo "$info" | jq -r '.country')
+                countryCode=$(echo "$info" | jq -r '.countryCode')
+                asn=$(echo "$info" | jq -r '.as')
 
                 read -r abuse_score threat_tags <<< $(get_abuseipdb_info "$ip")
-                local vt_samples=$(get_virustotal_info "$ip")
-                local gn_info=$(get_greynoise_info "$ip")
+                vt_samples=$(get_virustotal_info "$ip")
+                gn_info=$(get_greynoise_info "$ip")
 
                 send_discord_notification "$ip" "$proto" "$port" "$service" "$abuse_score" "$threat_tags" "$vt_samples" "$gn_info" "$country" "$countryCode" "$asn"
                 
                 # Extract ASN name from the ASN string
-                local asn_name=$(echo "$asn" | sed 's/^AS[0-9]\+ //')
+                asn_name=$(echo "$asn" | sed 's/^AS[0-9]\+ //')
                 handle_abuse_score_and_blacklist "$ip" "$abuse_score" "$asn" "$country" "$asn_name"
             fi
         fi
