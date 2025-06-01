@@ -65,6 +65,14 @@ cp .env.example .env
 
 Then edit it to include your API keys and Discord webhook URL.
 
+Copy the example blacklist and whitelist file:
+
+```bash
+cp lists.ini.example lists.ini
+```
+
+Then edit it to include your whitelist (trusted ASNs). You can also blacklist specific ASNs manually. ServerScout will automatically populate the blacklist with hostile ASNs it detects over time.
+
 ### 4. Set up iptables logging rules
 
 Run the `setup.sh` script to insert iptables rules that log new incoming connections:
@@ -128,6 +136,7 @@ Add the following line to your crontab using `crontab -e`:
 - 🔥 ASN blocking is done via nftables with IPv4 prefixes pulled from bgpview.io
 - It does not capture established or outgoing connections.
 - You must have logging enabled and a firewall that logs new traffic — this is handled by the `setup.sh` script.
+- 📁 ASNs are managed via the file defined in $ASN_LISTS, which includes `[whitelist]` and `[blacklist]` sections. The blacklist is automatically updated by ServerScout. Whitelisted ASNs will not be added to the blacklist.
 - 🧱 Use this alongside [**Geoip-shell**](https://github.com/friendly-bits/geoip-shell.git), [**CrowdSec**](https://github.com/crowdsecurity/crowdsec), or other firewall rules for best results. If you don't run any firewalls or protections in your server you will get excessive alerts.
 
 ## 📄 License
