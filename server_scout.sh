@@ -15,12 +15,12 @@ declare -A LAST_SEEN_IPS
 
 is_in_whitelist() {
     local asn="$1"
-    grep -q "^$asn$" <(sed -n '/\[whitelist\]/,/\[blacklist\]/p' "$ASN_CONFIG_FILE" | grep -v '^\[')
+    grep -q "^$asn$" <(sed -n '/\[whitelist\]/,/\[blacklist\]/p' "$ASN_LISTS" | grep -v '^\[')
 }
 
 is_in_blacklist() {
     local asn="$1"
-    grep -q "^$asn$" <(sed -n '/\[blacklist\]/,$p' "$ASN_CONFIG_FILE" | grep -v '^\[')
+    grep -q "^$asn$" <(sed -n '/\[blacklist\]/,$p' "$ASN_LISTS" | grep -v '^\[')
 }
 
 add_to_blacklist() {
@@ -39,7 +39,7 @@ add_to_blacklist() {
             next
         }
         { print }
-    ' "$ASN_CONFIG_FILE" > "$tmpfile" && mv "$tmpfile" "$ASN_CONFIG_FILE"
+    ' "$ASN_LISTS" > "$tmpfile" && mv "$tmpfile" "$ASN_LISTS"
     
     # Block the ASN using nftables
     block_asn "$asn"
