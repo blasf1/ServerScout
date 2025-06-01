@@ -303,7 +303,7 @@ handle_abuse_score_and_blacklist() {
         echo "⛔ Already blacklisted"
         return
     elif (( abuse_score > 5 )); then
-        add_to_blacklist "$asn_number" "$asn_name ($country)"
+        add_to_blacklist "$asn_number" "$asn_name ($country)" >/dev/null 2>&1;
         echo "🔥⛔ Newly blacklisted"
         return
     fi
