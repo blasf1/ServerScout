@@ -255,7 +255,6 @@ send_discord_notification() {
 🎯 **Port:** \`$port ($service)\`
 ☣️ **Threat Tags:** $threat_tags
 🧬 **Virus Total:** $vt_samples"
-
 [[ -n "$gn_info" ]] && description+="
 👁️ **GreyNoise:** $gn_info"
 [[ -n "$asn_block_status" ]] && description+="
@@ -363,12 +362,13 @@ tail -F "$LOG_FILE" | while read -r line; do
                 read -r abuse_score threat_tags <<< $(get_abuseipdb_info "$ip")
                 vt_samples=$(get_virustotal_info "$ip")
                 gn_info=$(get_greynoise_info "$ip")
-
-                send_discord_notification "$ip" "$proto" "$port" "$service" "$abuse_score" "$threat_tags" "$vt_samples" "$gn_info" "$country" "$countryCode" "$asn"
                 
                 # Extract ASN name from the ASN string
                 asn_name=$(echo "$asn" | sed 's/^AS[0-9]\+ //')
-                handle_abuse_score_and_blacklist "$ip" "$abuse_score" "$asn" "$country" "$asn_name"
+                asn_block_status = $(handle_abuse_score_and_blacklist "$ip" "$abuse_score" "$asn" "$country" "$asn_name")
+
+                # Send notification to Discord
+                send_discord_notification "$ip" "$proto" "$port" "$service" "$abuse_score" "$threat_tags" "$vt_samples" "$gn_info" "$country" "$countryCode" "$asn"
             fi
         fi
     fi
