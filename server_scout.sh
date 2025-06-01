@@ -15,12 +15,16 @@ declare -A LAST_SEEN_IPS
 
 is_in_whitelist() {
     local asn="$1"
-    grep -q "^$asn$" <(sed -n '/\[whitelist\]/,/\[blacklist\]/p' "$ASN_LISTS" | grep -v '^\[')
+    sed -n '/\[whitelist\]/,/\[blacklist\]/p' "$ASN_LISTS" \
+        | grep -v '^\[' \
+        | grep -qE "^$asn(\s|;)"
 }
 
 is_in_blacklist() {
     local asn="$1"
-    grep -q "^$asn$" <(sed -n '/\[blacklist\]/,$p' "$ASN_LISTS" | grep -v '^\[')
+    sed -n '/\[blacklist\]/,$p' "$ASN_LISTS" \
+        | grep -v '^\[' \
+        | grep -qE "^$asn(\s|;)"
 }
 
 add_to_blacklist() {
