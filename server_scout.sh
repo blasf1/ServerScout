@@ -12,7 +12,71 @@ fi
 
 LOG_FILE="/var/log/syslog"
 declare -A LAST_SEEN_IPS
-COOLDOWN_SECONDS=300  # 5 minutes
+
+is_in_whitelist() {
+    local asn="$1"
+    sed -n '/\[whitelist\]/,/\[blacklist\]/p' "$ASN_LISTS" \
+        | grep -v '^\[' \
+        | grep -qE "^$asn(\s|;)"
+}
+
+is_in_blacklist() {
+    local asn="$1"
+    sed -n '/\[blacklist\]/,$p' "$ASN_LISTS" \
+        | grep -v '^\[' \
+        | grep -qE "^$asn(\s|;)"
+}
+
+add_to_blacklist() {
+    local asn="$1"
+    local comment="$2 (autoblocked by ServerScout)"
+    local tmpfile=$(mktemp)
+
+    awk -v asn="$asn" -v comment="$comment" '
+        BEGIN {added=0}
+        /^\[blacklist\]/ {
+            print
+            if (!seen) {
+                print asn " ; " comment
+                seen=1
+            }
+            next
+        }
+        { print }
+    ' "$ASN_LISTS" > "$tmpfile" && mv "$tmpfile" "$ASN_LISTS"
+    
+    # Block the ASN using nftables
+    block_asn "$asn"
+}
+
+# Function to block an ASN using nftables
+block_asn() {
+    local asn="$1"
+    local asn_num=${asn#AS}
+
+    echo "Fetching prefixes for $asn..."
+    local prefixes=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes" | jq -r '.data.ipv4_prefixes[].prefix')
+
+    if [ -z "$prefixes" ]; then
+        echo "Warning: no prefixes found for $asn"
+        return
+    fi
+
+    for prefix in $prefixes; do
+        echo "Adding $prefix to $NFT_SET"
+        sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $prefix }"
+    done
+
+    # Add drop rule to input chain if missing
+    if ! sudo nft list chain "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_INPUT" | grep -q "ip saddr @$NFT_SET drop"; then
+        sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_INPUT" ip saddr @"$NFT_SET" drop
+    fi
+
+    # Add drop rule to forward chain if missing
+    if ! sudo nft list chain "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_FORWARD" | grep -q "ip saddr @$NFT_SET drop"; then
+        sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_FORWARD" ip saddr @"$NFT_SET" drop
+    fi
+}
 
 # Check if IP is allowed (i.e., not seen within cooldown window)
 should_process_ip() {
@@ -47,16 +111,30 @@ extract_top_threat_tags() {
         ((category_counts[$cat_id]++))
     done
 
-    local tags=()
+    # Create a temporary list of sortable "count category" lines
+    local sortable_lines=()
     for cat_id in "${!category_counts[@]}"; do
-        tag="${ABUSE_CATEGORIES[$cat_id]}"
-        count=${category_counts[$cat_id]}
-        [[ -n "$tag" ]] && tags+=("$tag (x$count)")
+        local tag="${ABUSE_CATEGORIES[$cat_id]}"
+        local count=${category_counts[$cat_id]}
+        [[ -n "$tag" ]] && sortable_lines+=("$count $tag")
     done
 
-    IFS=$'\n' sorted=($(for t in "${tags[@]}"; do echo "$t"; done | sort -t'(' -k2 -nr))
-    sorted=("${sorted[@]:0:3}")
-    [[ ${#sorted[@]} -eq 0 ]] && echo "None" || IFS=", "; echo "${sorted[*]}"
+    # Sort numerically and select top 3
+    IFS=$'\n' sorted=($(printf "%s\n" "${sortable_lines[@]}" | sort -nr | head -n 3))
+
+    # Format final tags list
+    local output_tags=()
+    for line in "${sorted[@]}"; do
+        local count=$(echo "$line" | awk '{print $1}')
+        local tag=$(echo "$line" | cut -d' ' -f2-)
+        output_tags+=("$tag (x$count)")
+    done
+
+    if [[ ${#output_tags[@]} -eq 0 ]]; then
+        echo "None"
+    else
+        IFS=", "; echo "${output_tags[*]}"
+    fi
 }
 
 # Function to get VirusTotal info
@@ -125,40 +203,44 @@ get_greynoise_info() {
     fi
 }
 
+# Function to get AbuseIPDB info
+get_abuseipdb_info() {
+    local ip="$1"
+    local abuse_info=$(curl -sG https://api.abuseipdb.com/api/v2/check \
+        --data-urlencode "ipAddress=$ip" \
+        --data-urlencode "verbose=true" \
+        -H "Key: $ABUSE_API_KEY" \
+        -H "Accept: application/json")
+
+    local abuse_score=$(echo "$abuse_info" | jq -r '.data.abuseConfidenceScore')
+    abuse_score=${abuse_score:-0}
+
+    local threat_tags=$(extract_top_threat_tags "$abuse_info")
+
+    echo "$abuse_score $threat_tags"
+}
+
 # Function to send notification to Discord using embed
 send_discord_notification() {
     local ip="$1"
     local proto="$2"
     local port="$3"
     local service="$4"
+    local abuse_score="$5"
+    local threat_tags="$6"
+    local vt_samples="$7"
+    local gn_info="$8"
+    local country="$9"
+    local countryCode="${10}"
+    local asn="${11}"
+    local asn_block_status="${12}"
+
     local info=$(curl -s "http://ip-api.com/json/$ip?fields=status,country,countryCode,as,query,message")
     local status=$(echo "$info" | jq -r '.status')
 
     if [[ "$status" == "success" ]]; then
-        local country=$(echo "$info" | jq -r '.country')
-        local countryCode=$(echo "$info" | jq -r '.countryCode')
-        local asn=$(echo "$info" | jq -r '.as')
         local timestamp=$(date +"%H:%M:%S %d-%m-%Y")
         local flag=":flag_${countryCode,,}:"
-
-	# AbuseIPDB Check
-        local abuse_info=$(curl -sG https://api.abuseipdb.com/api/v2/check \
-            --data-urlencode "ipAddress=$ip" \
-            --data-urlencode "verbose=true" \
-            -H "Key: $ABUSE_API_KEY" \
-            -H "Accept: application/json")
-
-        local abuse_score=$(echo "$abuse_info" | jq -r '.data.abuseConfidenceScore')
-        abuse_score=${abuse_score:-0}
-
-        # Extract top threat tags
-        local threat_tags=$(extract_top_threat_tags "$abuse_info")
-
-	# Extract Virus Total information
-	local vt_samples=$(get_virustotal_info "$ip")
-
-	# Extract greynoise information
-	local gn_info=$(get_greynoise_info "$ip")
 
         # Determine color based on abuse score
         local color=65280  # Green
@@ -177,9 +259,10 @@ send_discord_notification() {
 🎯 **Port:** \`$port ($service)\`
 ☣️ **Threat Tags:** $threat_tags
 🧬 **Virus Total:** $vt_samples"
-
 [[ -n "$gn_info" ]] && description+="
 👁️ **GreyNoise:** $gn_info"
+[[ -n "$asn_block_status" ]] && description+="
+🛡️ **ASN Block Status:** $asn_block_status"
 
         local json_payload=$(jq -n \
           --arg title "📡 New IP connection detected" \
@@ -201,6 +284,35 @@ send_discord_notification() {
     else
         echo "Failed to retrieve info for $ip"
     fi
+}
+
+# Function to handle abuse score and blacklisting
+handle_abuse_score_and_blacklist() {
+    local ip="$1"
+    local abuse_score="$2"
+    local asn="$3"
+    local country="$4"
+    local asn_name="$5"
+
+    local asn_number=$(echo "$asn" | grep -oE 'AS[0-9]+' | head -n 1)
+    if [[ -z "$asn_number" ]]; then
+        echo "⚠️ Unknown ASN"
+        return
+    fi
+
+    if is_in_whitelist "$asn_number"; then
+        echo "✅ Whitelisted"
+        return
+    elif is_in_blacklist "$asn_number"; then
+        echo "⛔ Already blacklisted"
+        return
+    elif (( abuse_score > 5 )); then
+        add_to_blacklist "$asn_number" "$asn_name ($country)" >/dev/null 2>&1;
+        echo "🔥⛔ Newly blacklisted"
+        return
+    fi
+
+    echo "🟡 Not blacklisted (low abuse score)"
 }
 
 # Function to clean up old IPs (older than 15 min)
@@ -241,8 +353,27 @@ tail -F "$LOG_FILE" | while read -r line; do
         proto=$(echo "$line" | grep -oP 'PROTO=\K\S+' || echo "N/A")
         port=$(echo "$line" | grep -oP 'DPT=\K\S+' || echo "0")
         service=$(get_service_name "$port")
-	if [[ -n "$ip" ]] && should_process_ip "$ip"; then
-            send_discord_notification "$ip" "$proto" "$port" "$service"
+
+        if [[ -n "$ip" ]] && should_process_ip "$ip"; then
+            info=$(curl -s "http://ip-api.com/json/$ip?fields=status,country,countryCode,as,query,message")
+            status=$(echo "$info" | jq -r '.status')
+
+            if [[ "$status" == "success" ]]; then
+                country=$(echo "$info" | jq -r '.country')
+                countryCode=$(echo "$info" | jq -r '.countryCode')
+                asn=$(echo "$info" | jq -r '.as')
+
+                read -r abuse_score threat_tags <<< $(get_abuseipdb_info "$ip")
+                vt_samples=$(get_virustotal_info "$ip")
+                gn_info=$(get_greynoise_info "$ip")
+                
+                # Extract ASN name from the ASN string
+                asn_name=$(echo "$asn" | sed 's/^AS[0-9]\+ //')
+                asn_block_status=$(handle_abuse_score_and_blacklist "$ip" "$abuse_score" "$asn" "$country" "$asn_name")
+
+                # Send notification to Discord
+                send_discord_notification "$ip" "$proto" "$port" "$service" "$abuse_score" "$threat_tags" "$vt_samples" "$gn_info" "$country" "$countryCode" "$asn" "$asn_block_status"
+            fi
         fi
     fi
 done

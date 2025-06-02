@@ -1,0 +1,7 @@
+[whitelist]
+; Add whitelist entries below this line
+; Example: AS12345   # Example Company
+
+[blacklist]
+; Add blacklist entries below this line
+; Example: AS67890   # Another Example Company
