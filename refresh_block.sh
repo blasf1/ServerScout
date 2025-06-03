@@ -46,13 +46,16 @@ while IFS= read -r line; do
   esac
 
   if $reading_asns; then
-    # Remove everything after semicolon (comment), then trim whitespace
+    # Skip empty or comment-only lines
+    [[ -z "$entry" || "$entry" =~ ^\s*# ]] && continue
+
+    # Strip inline comments (anything after ;) and trim whitespace
     asn=$(echo "$entry" | cut -d';' -f1 | xargs)
 
-    # Skip empty lines (in case entry was just a comment)
-    [ -z "$asn" ] && continue
+    # Ensure it starts with AS
+    [[ "$asn" != AS* ]] && continue
 
-    # Remove "AS" prefix to extract ASN number
+    # Extract ASN number only
     asn_num=${asn#AS}
 
     echo "Fetching prefixes for $asn..."
