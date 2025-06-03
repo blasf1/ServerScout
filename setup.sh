@@ -82,6 +82,12 @@ if ! sudo nft list chain "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_FORWARD" |
     sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_FORWARD" ip saddr @"$NFT_SET" drop
 fi
 
+# Wait for network to be up
+until ping -c1 google.com &>/dev/null; do
+  echo "Waiting for network..."
+  sleep 2
+done
+
 # Process [blacklist] section (ASNs)
 reading_asns=false
 while IFS=";" read -r asn comment; do
