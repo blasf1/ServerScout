@@ -16,44 +16,17 @@ if [ ! -f "$ASN_LISTS" ]; then
   exit 1
 fi
 
-# Flush existing prefixes in the nftables set
+# Flush existing prefixes in the set
 sudo nft flush set "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET"
 
-# Function to block ASN
-block_asn() {
-  local asn="$1"
-  local asn_num=${asn#AS}
-  echo "Fetching prefixes for $asn..."
-
-  local prefixes
-  prefixes=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes" | jq -r '.data.ipv4_prefixes[].prefix')
-
-  if [ -z "$prefixes" ]; then
-    echo "Warning: No prefixes found for $asn"
-    return
-  fi
-
-  for prefix in $prefixes; do
-    echo "Adding $prefix to $NFT_SET"
-    sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $prefix }"
-  done
-}
-
-# Function to block raw IP or CIDR
-block_ip() {
-  local ip="$1"
-  echo "Adding $ip to $NFT_SET"
-  sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $ip }"
-}
-
-# Parse the file and process both [blacklist] and [ip_blacklist]
+# Flags to track section
 reading_asns=false
 reading_ips=false
 
-while IFS= read -r line || [ -n "$line" ]; do
-  entry=$(echo "$line" | sed 's/^ *//;s/ *$//')
+while IFS= read -r line; do
+  entry=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  [[ -z "$entry" ]] && continue
 
-  # Section switching
   case "$entry" in
     "[blacklist]")
       reading_asns=true
@@ -72,13 +45,28 @@ while IFS= read -r line || [ -n "$line" ]; do
       ;;
   esac
 
-  [[ -z "$entry" ]] && continue
-
   if $reading_asns; then
-    block_asn "$entry"
+    asn=$(echo "$entry" | cut -d';' -f1 | xargs)
+    asn_num=${asn#AS}
+    echo "Fetching prefixes for $entry..."
+    prefixes=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes" | jq -r '.data.ipv4_prefixes[].prefix')
+
+    if [ -z "$prefixes" ]; then
+      echo "Warning: No prefixes found for $entry"
+      continue
+    fi
+
+    for prefix in $prefixes; do
+      echo "Adding $prefix to $NFT_SET"
+      sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $prefix }"
+    done
+
   elif $reading_ips; then
-    block_ip "$entry"
+    ip=$(echo "$entry" | cut -d';' -f1 | xargs)
+    echo "Adding $ip to $NFT_SET"
+    sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" ip saddr "$ip" drop
   fi
+
 done < "$ASN_LISTS"
 
 echo "✅ ASN and IP prefixes updated successfully."
