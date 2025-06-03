@@ -67,7 +67,7 @@ block_asn() {
 
 # Function to block a single IP or prefix
 block_ip() {
-    local ip="$1"
+    ip=$(echo "$entry" | cut -d';' -f1 | xargs)
     echo "Adding $ip to $NFT_SET"
     sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $ip }"
 }
@@ -100,6 +100,7 @@ while IFS=";" read -r asn comment; do
     if $reading_asns && [[ -n "$asn" ]]; then
         block_asn "$asn"
     fi
+    sleep 2
 done < "$ASN_LISTS"
 
 # Process [ip_blacklist] section (IP addresses or CIDRs)
