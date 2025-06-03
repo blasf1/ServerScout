@@ -60,10 +60,18 @@ while IFS= read -r line; do
 
     echo "Fetching prefixes for $asn..."
     
-    prefixes=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes" | jq -r '.data.ipv4_prefixes[].prefix')
+    json=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes")
+
+    # Validate: is it JSON and does it contain ipv4_prefixes?
+    if ! echo "$json" | jq -e '.data.ipv4_prefixes' >/dev/null 2>&1; then
+        echo "Warning: Invalid JSON or missing data for $asn"
+        continue
+    fi
+
+    prefixes=$(echo "$json" | jq -r '.data.ipv4_prefixes[].prefix // empty')
 
     if [ -z "$prefixes" ]; then
-      echo "Warning: No prefixes found for $entry"
+      echo "Warning: No prefixes found for AS$asn_num"
       continue
     fi
 
