@@ -46,9 +46,15 @@ while IFS= read -r line; do
   esac
 
   if $reading_asns; then
-    # Grabs the first non-blank token before any space or semicolon
-    asn=$(echo "$entry" | awk '{print $1}')
+    # Remove everything after semicolon (comment), then trim whitespace
+    asn=$(echo "$entry" | cut -d';' -f1 | xargs)
+
+    # Skip empty lines (in case entry was just a comment)
+    [ -z "$asn" ] && continue
+
+    # Remove "AS" prefix to extract ASN number
     asn_num=${asn#AS}
+
     echo "Fetching prefixes for $asn..."
     
     prefixes=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes" | jq -r '.data.ipv4_prefixes[].prefix')
