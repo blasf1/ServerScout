@@ -64,7 +64,7 @@ while IFS= read -r line; do
   elif $reading_ips; then
     ip=$(echo "$entry" | cut -d';' -f1 | xargs)
     echo "Adding $ip to $NFT_SET"
-    sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" ip saddr "$ip" drop
+    sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" ip saddr "$ip" drop
   fi
 
 done < "$ASN_LISTS"

@@ -69,7 +69,7 @@ block_asn() {
 block_ip() {
     local ip="$1"
     echo "Adding $ip to $NFT_SET"
-    sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" ip saddr "$ip" drop
+    sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" ip saddr "$ip" drop
 }
 
 # Add drop rule to input chain if missing
