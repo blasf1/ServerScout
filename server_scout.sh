@@ -54,7 +54,7 @@ add_ip_to_blacklist() {
 
     # Block IP using nftables
     echo "Blocking individual IP $ip"
-    sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $ip }"
+    sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" ip saddr "$ip" drop
 }
 
 add_to_blacklist() {
@@ -327,7 +327,7 @@ handle_abuse_score_and_blacklist() {
     local asn_number=$(echo "$asn" | grep -oE 'AS[0-9]+' | head -n 1)
     if [[ -z "$asn_number" ]]; then
         if (( abuse_score > 10 )); then
-            sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_INPUT" ip saddr "$ip" drop
+            add_ip_to_blacklist "$ip" "Unknown ASN (autoblocked by ServerScout)"
             echo "⚠️ Unknown ASN - IP banned"
         else
             echo "⚠️ Unknown ASN"
@@ -337,7 +337,7 @@ handle_abuse_score_and_blacklist() {
 
     if is_in_whitelist "$asn_number"; then
         if (( abuse_score > 10 )); then
-            sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_INPUT" ip saddr "$ip" drop
+            add_ip_to_blacklist "$ip" "ASN $asn_number ($asn_name) from $country (autoblocked by ServerScout)"
             echo "✅ ASN Whitelisted - IP banned"
         else
             echo "✅ ASN Whitelisted"
@@ -345,7 +345,7 @@ handle_abuse_score_and_blacklist() {
         return
     elif is_in_blacklist "$asn_number"; then
         if (( abuse_score > 10 )); then
-            sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_INPUT" ip saddr "$ip" drop
+            add_ip_to_blacklist "$ip" "ASN $asn_number ($asn_name) from $country (autoblocked by ServerScout)"
             echo "⛔ ASN Already blacklisted - IP banned"
         else
             echo "⛔ ASN Already blacklisted"
