@@ -43,7 +43,7 @@ block_asn() {
 block_ip() {
   local ip="$1"
   echo "Adding $ip to $NFT_SET"
-  sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $ip }"
+  sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" ip saddr "$ip" drop
 }
 
 # Parse the file and process both [blacklist] and [ip_blacklist]
