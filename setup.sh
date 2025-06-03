@@ -11,6 +11,18 @@ else
     exit 1
 fi
 
+# Wait for the network interface to be up
+until ip link show "$IFACE" | grep -q "state UP"; do
+  echo "Waiting for $IFACE to be up..."
+  sleep 2
+done
+
+# Wait for network to be up
+until ping -c1 google.com &>/dev/null; do
+  echo "Waiting for network..."
+  sleep 2
+done
+
 # Function to check if an iptables rule exists
 rule_exists() {
     iptables -L INPUT -v | grep -q "NEW-CONN"
@@ -81,12 +93,6 @@ fi
 if ! sudo nft list chain "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_FORWARD" | grep -q "ip saddr @$NFT_SET drop"; then
     sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_FORWARD" ip saddr @"$NFT_SET" drop
 fi
-
-# Wait for network to be up
-until ping -c1 google.com &>/dev/null; do
-  echo "Waiting for network..."
-  sleep 2
-done
 
 # Process [blacklist] section (ASNs)
 reading_asns=false
