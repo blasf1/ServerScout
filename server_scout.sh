@@ -27,6 +27,36 @@ is_in_blacklist() {
         | grep -qE "^$asn(\s|;)"
 }
 
+is_ip_blacklisted() {
+    local ip="$1"
+    sed -n '/\[ip_blacklist\]/,$p' "$ASN_LISTS" \
+        | grep -v '^\[' \
+        | grep -qE "^$ip(\s|;)"
+}
+
+add_ip_to_blacklist() {
+    local ip="$1"
+    local comment="$2"
+    local tmpfile=$(mktemp)
+
+    awk -v ip="$ip" -v comment="$comment" '
+        BEGIN {added=0}
+        /^\[ip_blacklist\]/ {
+            print
+            if (!seen) {
+                print ip " ; " comment
+                seen=1
+            }
+            next
+        }
+        { print }
+    ' "$ASN_LISTS" > "$tmpfile" && mv "$tmpfile" "$ASN_LISTS"
+
+    # Block IP using nftables
+    echo "Blocking individual IP $ip"
+    sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $ip }"
+}
+
 add_to_blacklist() {
     local asn="$1"
     local comment="$2 (autoblocked by ServerScout)"
@@ -296,19 +326,34 @@ handle_abuse_score_and_blacklist() {
 
     local asn_number=$(echo "$asn" | grep -oE 'AS[0-9]+' | head -n 1)
     if [[ -z "$asn_number" ]]; then
-        echo "⚠️ Unknown ASN"
+        if (( abuse_score > 10 )); then
+            sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_INPUT" ip saddr "$ip" drop
+            echo "⚠️ Unknown ASN - IP banned"
+        else
+            echo "⚠️ Unknown ASN"
+        fi
         return
     fi
 
     if is_in_whitelist "$asn_number"; then
-        echo "✅ Whitelisted"
+        if (( abuse_score > 10 )); then
+            sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_INPUT" ip saddr "$ip" drop
+            echo "✅ ASN Whitelisted - IP banned"
+        else
+            echo "✅ ASN Whitelisted"
+        fi
         return
     elif is_in_blacklist "$asn_number"; then
-        echo "⛔ Already blacklisted"
+        if (( abuse_score > 10 )); then
+            sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_INPUT" ip saddr "$ip" drop
+            echo "⛔ ASN Already blacklisted - IP banned"
+        else
+            echo "⛔ ASN Already blacklisted"
+        fi
         return
-    elif (( abuse_score > 5 )); then
+    elif (( abuse_score > 10 )); then
         add_to_blacklist "$asn_number" "$asn_name ($country)" >/dev/null 2>&1;
-        echo "🔥⛔ Newly blacklisted"
+        echo "🔥⛔ Banning ASN"
         return
     fi
 
