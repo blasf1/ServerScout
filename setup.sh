@@ -65,6 +65,13 @@ block_asn() {
     done
 }
 
+# Function to block a single IP or prefix
+block_ip() {
+    local ip="$1"
+    echo "Adding $ip to $NFT_SET"
+    sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $ip }"
+}
+
 # Add drop rule to input chain if missing
 if ! sudo nft list chain "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_INPUT" | grep -q "ip saddr @$NFT_SET drop"; then
     sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_INPUT" ip saddr @"$NFT_SET" drop
@@ -75,11 +82,44 @@ if ! sudo nft list chain "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_FORWARD" |
     sudo nft add rule "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_CHAIN_FORWARD" ip saddr @"$NFT_SET" drop
 fi
 
-# Read blacklisted ASNs and block them
+# Process [blacklist] section (ASNs)
+reading_asns=false
 while IFS=";" read -r asn comment; do
     asn=$(echo "$asn" | sed 's/^ *//;s/ *$//')
-    [[ -z "$asn" || "$asn" == \[blacklist\] ]] && continue
-    block_asn "$asn"
-done < <(sed -n '/\[blacklist\]/,/\[.*\]/p; /\[blacklist\]/,$p' "$ASN_LISTS")
+
+    # Detect section headers
+    if [[ "$asn" =~ ^\[.*\]$ ]]; then
+        if [[ "$asn" == "[blacklist]" ]]; then
+            reading_asns=true
+        else
+            reading_asns=false
+        fi
+        continue
+    fi
+
+    if $reading_asns && [[ -n "$asn" ]]; then
+        block_asn "$asn"
+    fi
+done < "$ASN_LISTS"
+
+# Process [ip_blacklist] section (IP addresses or CIDRs)
+reading_ips=false
+while IFS= read -r line; do
+    ip=$(echo "$line" | sed 's/^ *//;s/ *$//')
+
+    # Detect section headers
+    if [[ "$ip" =~ ^\[.*\]$ ]]; then
+        if [[ "$ip" == "[ip_blacklist]" ]]; then
+            reading_ips=true
+        else
+            reading_ips=false
+        fi
+        continue
+    fi
+
+    if $reading_ips && [[ -n "$ip" ]]; then
+        block_ip "$ip"
+    fi
+done < "$ASN_LISTS"
 
 echo "✅ ASN blocking setup complete"

@@ -16,29 +16,69 @@ if [ ! -f "$ASN_LISTS" ]; then
   exit 1
 fi
 
-# Flush existing prefixes in the set
+# Flush existing prefixes in the nftables set
 sudo nft flush set "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET"
 
-# Extract ASNs from the blacklist section of the INI file
-while IFS=";" read -r asn comment; do
-  # Remove leading/trailing whitespace and skip empty lines or section headers
-  asn=$(echo "$asn" | sed 's/^ *//;s/ *$//')
-  [[ -z "$asn" || "$asn" == \[blacklist\] ]] && continue
-
-  ASN_NUM=${asn#AS}
+# Function to block ASN
+block_asn() {
+  local asn="$1"
+  local asn_num=${asn#AS}
   echo "Fetching prefixes for $asn..."
 
-  PREFIXES=$(curl -s "https://api.bgpview.io/asn/$ASN_NUM/prefixes" | jq -r '.data.ipv4_prefixes[].prefix')
+  local prefixes
+  prefixes=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes" | jq -r '.data.ipv4_prefixes[].prefix')
 
-  if [ -z "$PREFIXES" ]; then
+  if [ -z "$prefixes" ]; then
     echo "Warning: No prefixes found for $asn"
-    continue
+    return
   fi
 
-  for prefix in $PREFIXES; do
+  for prefix in $prefixes; do
     echo "Adding $prefix to $NFT_SET"
     sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $prefix }"
   done
-done < <(sed -n '/\[blacklist\]/,/\[.*\]/p; /\[blacklist\]/,$p' "$ASN_LISTS")
+}
 
-echo "ASN prefixes updated successfully."
+# Function to block raw IP or CIDR
+block_ip() {
+  local ip="$1"
+  echo "Adding $ip to $NFT_SET"
+  sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $ip }"
+}
+
+# Parse the file and process both [blacklist] and [ip_blacklist]
+reading_asns=false
+reading_ips=false
+
+while IFS= read -r line || [ -n "$line" ]; do
+  entry=$(echo "$line" | sed 's/^ *//;s/ *$//')
+
+  # Section switching
+  case "$entry" in
+    "[blacklist]")
+      reading_asns=true
+      reading_ips=false
+      continue
+      ;;
+    "[ip_blacklist]")
+      reading_asns=false
+      reading_ips=true
+      continue
+      ;;
+    \[*)
+      reading_asns=false
+      reading_ips=false
+      continue
+      ;;
+  esac
+
+  [[ -z "$entry" ]] && continue
+
+  if $reading_asns; then
+    block_asn "$entry"
+  elif $reading_ips; then
+    block_ip "$entry"
+  fi
+done < "$ASN_LISTS"
+
+echo "✅ ASN and IP prefixes updated successfully."
