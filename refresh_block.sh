@@ -46,9 +46,11 @@ while IFS= read -r line; do
   esac
 
   if $reading_asns; then
-    asn=$(echo "$entry" | cut -d';' -f1 | xargs)
+    # Grabs the first non-blank token before any space or semicolon
+    asn=$(echo "$entry" | awk '{print $1}')
     asn_num=${asn#AS}
-    echo "Fetching prefixes for $entry..."
+    echo "Fetching prefixes for $asn..."
+    
     prefixes=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes" | jq -r '.data.ipv4_prefixes[].prefix')
 
     if [ -z "$prefixes" ]; then
