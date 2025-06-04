@@ -46,6 +46,8 @@ while IFS= read -r line; do
   esac
 
   if $reading_asns; then
+    sleep 2 # Rate limit to avoid hitting API too fast
+
     # Skip empty or comment-only lines
     [[ -z "$entry" || "$entry" =~ ^\s*# ]] && continue
 
@@ -79,7 +81,6 @@ while IFS= read -r line; do
       echo "Adding $prefix to $NFT_SET"
       sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $prefix }"
     done
-    sleep 2 # Rate limit to avoid hitting API too fast
   elif $reading_ips; then
     ip=$(echo "$entry" | cut -d';' -f1 | xargs)
     echo "Adding $ip to $NFT_SET"

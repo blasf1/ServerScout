@@ -85,6 +85,7 @@ fi
 # Process [blacklist] section (ASNs)
 reading_asns=false
 while IFS=";" read -r asn comment; do
+    sleep 5
     asn=$(echo "$asn" | sed 's/^ *//;s/ *$//')
 
     # Detect section headers
@@ -100,7 +101,6 @@ while IFS=";" read -r asn comment; do
     if $reading_asns && [[ -n "$asn" ]]; then
         block_asn "$asn"
     fi
-    sleep 2
 done < "$ASN_LISTS"
 
 # Process [ip_blacklist] section (IP addresses or CIDRs)
