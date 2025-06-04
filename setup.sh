@@ -11,18 +11,6 @@ else
     exit 1
 fi
 
-# Wait for the network interface to be up
-until ip link show "$IFACE" | grep -q "state UP"; do
-  echo "Waiting for $IFACE to be up..."
-  sleep 2
-done
-
-# Wait for network to be up
-until ping -c1 google.com &>/dev/null; do
-  echo "Waiting for network..."
-  sleep 2
-done
-
 # Function to check if an iptables rule exists
 rule_exists() {
     iptables -L INPUT -v | grep -q "NEW-CONN"
