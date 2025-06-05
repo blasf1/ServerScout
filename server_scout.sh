@@ -10,8 +10,22 @@ else
     exit 1
 fi
 
+touch "$CACHE_FILE"
 LOG_FILE="/var/log/syslog"
 declare -A LAST_SEEN_IPS
+
+get_cached_prefixes() {
+    local asn="$1"
+    grep -E "^$asn=" "$CACHE_FILE" | cut -d'=' -f2
+}
+
+cache_prefixes() {
+    local asn="$1"
+    local prefixes="$2"
+    grep -vE "^$asn=" "$CACHE_FILE" > "${CACHE_FILE}.tmp"
+    echo "$asn=$prefixes" >> "${CACHE_FILE}.tmp"
+    mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
+}
 
 is_in_whitelist() {
     local asn="$1"
@@ -83,15 +97,23 @@ block_asn() {
     local asn="$1"
     local asn_num=${asn#AS}
 
-    echo "Fetching prefixes for $asn..."
-    local prefixes=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes" | jq -r '.data.ipv4_prefixes[].prefix')
+    echo "Checking prefix cache for $asn..."
 
-    if [ -z "$prefixes" ]; then
-        echo "Warning: no prefixes found for $asn"
-        return
+    local prefixes=$(get_cached_prefixes "$asn")
+    if [[ -z "$prefixes" ]]; then
+        echo "No cache for $asn, fetching from BGPView..."
+        prefixes=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes" | jq -r '.data.ipv4_prefixes[].prefix' | tr '\n' ',' | sed 's/,$//')
+        if [[ -z "$prefixes" ]]; then
+            echo "⚠️  Warning: No prefixes found for $asn"
+            return
+        fi
+        cache_prefixes "$asn" "$prefixes"
+    else
+        echo "✅ Using cached prefixes for $asn"
     fi
 
-    for prefix in $prefixes; do
+    IFS=',' read -ra prefix_array <<< "$prefixes"
+    for prefix in "${prefix_array[@]}"; do
         echo "Adding $prefix to $NFT_SET"
         sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $prefix }"
     done
@@ -327,7 +349,7 @@ handle_abuse_score_and_blacklist() {
     if [[ -z "$asn_number" ]]; then
         if (( abuse_score > 10 )); then
             add_ip_to_blacklist "$ip" "Unknown ASN (autoblocked by ServerScout)"
-            echo "⚠️ Unknown ASN - IP banned"
+            echo "⚠️ Unknown ASN - ⛔ IP banned"
         else
             echo "⚠️ Unknown ASN"
         fi
@@ -337,7 +359,7 @@ handle_abuse_score_and_blacklist() {
     if is_in_whitelist "$asn_number"; then
         if (( abuse_score > 10 )); then
             add_ip_to_blacklist "$ip" "ASN $asn_number ($asn_name) from $country (autoblocked by ServerScout)"
-            echo "✅ ASN Whitelisted - IP banned"
+            echo "✅ ASN Whitelisted - 🔥⛔ IP banned"
         else
             echo "✅ ASN Whitelisted"
         fi
@@ -345,7 +367,7 @@ handle_abuse_score_and_blacklist() {
     elif is_in_blacklist "$asn_number"; then
         if (( abuse_score > 10 )); then
             add_ip_to_blacklist "$ip" "ASN $asn_number ($asn_name) from $country (autoblocked by ServerScout)"
-            echo "⛔ ASN Already blacklisted - IP banned"
+            echo "⛔ ASN Already blacklisted - 🔥⛔ IP banned"
         else
             echo "⛔ ASN Already blacklisted"
         fi
