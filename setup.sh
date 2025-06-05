@@ -71,6 +71,7 @@ block_asn() {
             return
         fi
         cache_prefixes "$asn" "$prefixes"
+        sleep 5 # Rate limit API calls
     else
         echo "✅ Using cached prefixes for $asn"
     fi
@@ -100,7 +101,6 @@ fi
 # Parse blacklist entries
 reading_asns=false
 while IFS=";" read -r asn comment; do
-    sleep 5
     asn=$(echo "$asn" | sed 's/^ *//;s/ *$//')
     [[ "$asn" =~ ^\[.*\]$ ]] && {
         reading_asns=$([[ "$asn" == "[blacklist]" ]] && echo true || echo false)
