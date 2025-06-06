@@ -87,7 +87,7 @@ block_asn() {
 block_ip() {
     ip=$(echo "$entry" | cut -d';' -f1 | xargs)
     echo "Adding $ip to $NFT_SET"
-    sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $ip }"
+    sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "$ip"
 }
 
 # Add drop rules if missing
