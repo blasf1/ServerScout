@@ -52,7 +52,11 @@ while IFS= read -r line; do
 
         if ! echo "$json" | jq -e '.data.ipv4_prefixes' >/dev/null 2>&1; then
             echo "⚠️  API error or invalid data for $asn, keeping old cache"
-            echo "$asn=${OLD_PREFIXES[$asn]}" >> "$TEMP_CACHE"
+            if [[ -n "${OLD_PREFIXES[$asn]}" ]]; then
+                echo "$asn=${OLD_PREFIXES[$asn]}" >> "$TEMP_CACHE"
+            else
+                echo "⚠️  No old cache found for $asn, skipping entry"
+            fi
             continue
         fi
 
