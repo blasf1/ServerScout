@@ -347,7 +347,7 @@ handle_abuse_score_and_blacklist() {
 
     local asn_number=$(echo "$asn" | grep -oE 'AS[0-9]+' | head -n 1)
     if [[ -z "$asn_number" ]]; then
-        if (( abuse_score > 10 )); then
+        if (( abuse_score > ABUSE_SCORE_THRESHOLD )); then
             add_ip_to_blacklist "$ip" "Unknown ASN (autoblocked by ServerScout)"
             echo "⚠️ Unknown ASN - ⛔ IP banned"
         else
