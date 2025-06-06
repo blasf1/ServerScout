@@ -84,18 +84,6 @@ while IFS= read -r line; do
     fi
 done < "$ASN_LISTS"
 
-# Remove old ASNs that no longer exist in the .ini file
-for old_asn in "${!OLD_PREFIXES[@]}"; do
-    if ! grep -q "^$old_asn" "$TEMP_CACHE"; then
-        echo "🗑 Removing all prefixes from deleted $old_asn"
-        IFS=',' read -ra removed_set <<< "${OLD_PREFIXES[$old_asn]}"
-        for ip in "${removed_set[@]}"; do
-            echo "🔻 Removing prefix $ip from removed $old_asn"
-            sudo nft delete element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $ip }" 2>/dev/null || true
-        done
-    fi
-done
-
 mv "$TEMP_CACHE" "$CACHE_FILE"
 echo "✅ ASN prefix cache diffed and updated."
 
