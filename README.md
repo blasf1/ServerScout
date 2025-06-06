@@ -2,6 +2,8 @@
 
 **ServerScout** is a lightweight Bash-based monitor for public-facing servers. It watches for new incoming IP connections and sends structured alerts to a Discord channel using webhooks. The goal is to give you visibility into unwanted connections—potential scans, probes, or intrusions—in a simple and maintainable way.
 
+It’s especially helpful for monitoring self-hosted services, working well as a lightweight layer in front of your stack—whether that’s a reverse proxy, Pangolin, or just directly exposed apps.
+
 ---
 
 ## ✨ What It Does
