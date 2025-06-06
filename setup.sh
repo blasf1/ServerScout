@@ -85,9 +85,12 @@ block_asn() {
 
 # Function to block a single IP or prefix
 block_ip() {
-    ip=$(echo "$entry" | cut -d';' -f1 | xargs)
-    echo "Adding $ip to $NFT_SET"
-    sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "$ip"
+    local ip="$1"
+    ip=$(echo "$ip" | cut -d';' -f1 | xargs)
+    if [[ -n "$ip" ]]; then
+        echo "Adding $ip to $NFT_SET"
+        sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $ip }"
+    fi
 }
 
 # Add drop rules if missing
