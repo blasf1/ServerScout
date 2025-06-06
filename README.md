@@ -155,7 +155,7 @@ Add the following line to your crontab using `crontab -e`:
 - It does not capture established or outgoing connections.
 - You must have logging enabled and a firewall that logs new traffic — this is handled by the `setup.sh` script.
 - 📁 ASNs are managed via the file defined in $ASN_LISTS, which includes `[whitelist]` and `[blacklist]` sections. The blacklist is automatically updated by ServerScout. Whitelisted ASNs will not be added to the blacklist.
-- ⚙️ The [ip_blacklist] section supports static IP blocks that are also applied during refresh.
+- ⚙️ The `[ip_blacklist]` section supports static IP blocks that are also applied during refresh.
 - 🧱 Use this alongside [**Geoip-shell**](https://github.com/friendly-bits/geoip-shell.git), [**CrowdSec**](https://github.com/crowdsecurity/crowdsec), or other firewall rules for best results. If you don't run any firewalls or protections in your server you will get excessive alerts.
 
 ## 📄 License
