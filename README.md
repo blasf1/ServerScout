@@ -114,12 +114,30 @@ sudo systemctl start serverscout
 
 ### 6. Make rules persist after reboot
 
-The ipset and iptables rules are not persistent by default. To ensure the ASN blocks and connection monitor are restored after a reboot, schedule the `setup.sh` script to run at startup using the `@reboot` cron directive.
+The ipset and iptables rules are not persistent by default. To ensure the ASN blocks and connection monitor are restored after a reboot. To ensure docker and network are already available, create a one shot service in `/etc/systemd/system/serverscout-setup.service` with the following contents:
 
-Add the following to your crontab using `crontab -e`:
+```
+# /etc/systemd/system/serverscout-setup.service
+[Unit]
+Description=Setup ServerScout iptables and nftables rules
+After=network.target docker.service
+Requires=network.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/path/to/setup.sh
+RemainAfterExit=yes
+EnvironmentFile=/path/to/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable the service:
 
 ```bash
-@reboot /root/ServerScout/setup.sh 1>/dev/null 2>/dev/null
+sudo systemctl daemon-reexec
+sudo systemctl enable serverscout-setup
 ```
 
 ### 7. Ensure that ASNs are kept up to date
@@ -139,6 +157,7 @@ Add the following line to your crontab using `crontab -e`:
 - It does not capture established or outgoing connections.
 - You must have logging enabled and a firewall that logs new traffic — this is handled by the `setup.sh` script.
 - 📁 ASNs are managed via the file defined in $ASN_LISTS, which includes `[whitelist]` and `[blacklist]` sections. The blacklist is automatically updated by ServerScout. Whitelisted ASNs will not be added to the blacklist.
+- ⚙️ The `[ip_blacklist]` section supports static IP blocks that are also applied during refresh.
 - 🧱 Use this alongside [**Geoip-shell**](https://github.com/friendly-bits/geoip-shell.git), [**CrowdSec**](https://github.com/crowdsecurity/crowdsec), or other firewall rules for best results. If you don't run any firewalls or protections in your server you will get excessive alerts.
 
 ## 📄 License

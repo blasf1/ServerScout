@@ -10,8 +10,22 @@ else
     exit 1
 fi
 
+touch "$CACHE_FILE"
 LOG_FILE="/var/log/syslog"
 declare -A LAST_SEEN_IPS
+
+get_cached_prefixes() {
+    local asn="$1"
+    grep -E "^$asn=" "$CACHE_FILE" | cut -d'=' -f2
+}
+
+cache_prefixes() {
+    local asn="$1"
+    local prefixes="$2"
+    grep -vE "^$asn=" "$CACHE_FILE" > "${CACHE_FILE}.tmp"
+    echo "$asn=$prefixes" >> "${CACHE_FILE}.tmp"
+    mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
+}
 
 is_in_whitelist() {
     local asn="$1"
@@ -25,6 +39,35 @@ is_in_blacklist() {
     sed -n '/\[blacklist\]/,$p' "$ASN_LISTS" \
         | grep -v '^\[' \
         | grep -qE "^$asn(\s|;)"
+}
+
+is_ip_blacklisted() {
+    local ip="$1"
+    sed -n '/\[ip_blacklist\]/,$p' "$ASN_LISTS" \
+        | grep -v '^\[' \
+        | grep -qE "^$ip(\s|;)"
+}
+
+add_ip_to_blacklist() {
+    local ip="$1"
+    local comment="$2"
+    local tmpfile=$(mktemp)
+
+    awk -v ip="$ip" -v comment="$comment" '
+        BEGIN {added=0}
+        /^\[ip_blacklist\]/ {
+            print
+            if (!seen) {
+                print ip " ; " comment
+                seen=1
+            }
+            next
+        }
+        { print }
+    ' "$ASN_LISTS" > "$tmpfile" && mv "$tmpfile" "$ASN_LISTS"
+
+    # Block IP using nftables
+    sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $ip }"
 }
 
 add_to_blacklist() {
@@ -54,15 +97,23 @@ block_asn() {
     local asn="$1"
     local asn_num=${asn#AS}
 
-    echo "Fetching prefixes for $asn..."
-    local prefixes=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes" | jq -r '.data.ipv4_prefixes[].prefix')
+    echo "Checking prefix cache for $asn..."
 
-    if [ -z "$prefixes" ]; then
-        echo "Warning: no prefixes found for $asn"
-        return
+    local prefixes=$(get_cached_prefixes "$asn")
+    if [[ -z "$prefixes" ]]; then
+        echo "No cache for $asn, fetching from BGPView..."
+        prefixes=$(curl -s "https://api.bgpview.io/asn/$asn_num/prefixes" | jq -r '.data.ipv4_prefixes[].prefix' | tr '\n' ',' | sed 's/,$//')
+        if [[ -z "$prefixes" ]]; then
+            echo "⚠️  Warning: No prefixes found for $asn"
+            return
+        fi
+        cache_prefixes "$asn" "$prefixes"
+    else
+        echo "✅ Using cached prefixes for $asn"
     fi
 
-    for prefix in $prefixes; do
+    IFS=',' read -ra prefix_array <<< "$prefixes"
+    for prefix in "${prefix_array[@]}"; do
         echo "Adding $prefix to $NFT_SET"
         sudo nft add element "$NFT_TABLE" "$NFT_CUSTOM_TABLE" "$NFT_SET" "{ $prefix }"
     done
@@ -296,19 +347,34 @@ handle_abuse_score_and_blacklist() {
 
     local asn_number=$(echo "$asn" | grep -oE 'AS[0-9]+' | head -n 1)
     if [[ -z "$asn_number" ]]; then
-        echo "⚠️ Unknown ASN"
+        if (( abuse_score > ABUSE_SCORE_THRESHOLD )); then
+            add_ip_to_blacklist "$ip" "Unknown ASN (autoblocked by ServerScout)"
+            echo "⚠️ Unknown ASN - ⛔ IP banned"
+        else
+            echo "⚠️ Unknown ASN"
+        fi
         return
     fi
 
     if is_in_whitelist "$asn_number"; then
-        echo "✅ Whitelisted"
+        if (( abuse_score > ABUSE_SCORE_THRESHOLD )); then
+            add_ip_to_blacklist "$ip" "ASN $asn_number ($asn_name) from $country (autoblocked by ServerScout)"
+            echo "✅ ASN Whitelisted - 🔥⛔ IP banned"
+        else
+            echo "✅ ASN Whitelisted"
+        fi
         return
     elif is_in_blacklist "$asn_number"; then
-        echo "⛔ Already blacklisted"
+        if (( abuse_score > ABUSE_SCORE_THRESHOLD )); then
+            add_ip_to_blacklist "$ip" "ASN $asn_number ($asn_name) from $country (autoblocked by ServerScout)"
+            echo "⛔ ASN Already blacklisted - 🔥⛔ IP banned"
+        else
+            echo "⛔ ASN Already blacklisted"
+        fi
         return
-    elif (( abuse_score > 5 )); then
+    elif (( abuse_score > ABUSE_SCORE_THRESHOLD )); then
         add_to_blacklist "$asn_number" "$asn_name ($country)" >/dev/null 2>&1;
-        echo "🔥⛔ Newly blacklisted"
+        echo "🔥⛔ Banning ASN"
         return
     fi
 

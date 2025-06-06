@@ -5,3 +5,6 @@
 [blacklist]
 ; Add blacklist entries below this line
 ; Example: AS67890   # Another Example Company
+
+[ip_blacklist]
+; Add blacklisted IPs
