@@ -357,7 +357,7 @@ handle_abuse_score_and_blacklist() {
     fi
 
     if is_in_whitelist "$asn_number"; then
-        if (( abuse_score > 10 )); then
+        if (( abuse_score > ABUSE_SCORE_THRESHOLD )); then
             add_ip_to_blacklist "$ip" "ASN $asn_number ($asn_name) from $country (autoblocked by ServerScout)"
             echo "✅ ASN Whitelisted - 🔥⛔ IP banned"
         else
@@ -365,14 +365,14 @@ handle_abuse_score_and_blacklist() {
         fi
         return
     elif is_in_blacklist "$asn_number"; then
-        if (( abuse_score > 10 )); then
+        if (( abuse_score > ABUSE_SCORE_THRESHOLD )); then
             add_ip_to_blacklist "$ip" "ASN $asn_number ($asn_name) from $country (autoblocked by ServerScout)"
             echo "⛔ ASN Already blacklisted - 🔥⛔ IP banned"
         else
             echo "⛔ ASN Already blacklisted"
         fi
         return
-    elif (( abuse_score > 10 )); then
+    elif (( abuse_score > ABUSE_SCORE_THRESHOLD )); then
         add_to_blacklist "$asn_number" "$asn_name ($country)" >/dev/null 2>&1;
         echo "🔥⛔ Banning ASN"
         return
